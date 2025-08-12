@@ -9,13 +9,13 @@ from datasets import load_dataset
 
 from utils import (
     get_training_args,
-    get_bioclip,
+    get_DINO,
     evalute_spei_r2_scores,
     save_results,
     compile_event_predictions,
     get_collate_fn,
 )
-from model import BioClip2_DeepRegressor
+from model import DINO_DeepRegressor
 
 
 def evaluate(model, dataloader):
@@ -81,8 +81,8 @@ def main():
     save_dir = Path(__file__).resolve().parent
     
     # load model
-    bioclip, transforms = get_bioclip()
-    model = BioClip2_DeepRegressor(bioclip).cuda()
+    bioclip, processor = get_DINO()
+    model = DINO_DeepRegressor(bioclip).cuda()
     model.load_state_dict(torch.load(save_dir / "model.pth"))
     
     # Get datasets
@@ -94,7 +94,7 @@ def main():
     
     # Transform images for model input
     def dset_transforms(examples):
-        examples["pixel_values"] = [transforms(img.convert("RGB")) for img in examples["file_path"]]
+        examples["pixel_values"] = [processor(img.convert("RGB"), return_tensors="pt")['pixel_values'][0] for img in examples["file_path"]]
         return examples
     
     test_dset = ds.with_transform(dset_transforms)
@@ -105,8 +105,7 @@ def main():
         save_dir / "resutls.json",
         args.batch_size,
         args.num_workers,
-        model,
-        transforms,
+        model
     )
 
 
