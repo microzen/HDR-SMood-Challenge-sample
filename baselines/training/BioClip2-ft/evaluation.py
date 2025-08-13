@@ -15,7 +15,7 @@ from utils import (
     compile_event_predictions,
     get_collate_fn,
 )
-from model import BioClip2_DeepRegressor
+from model import BioClip2_DeepFeatureRegressor
 
 
 def evaluate(model, dataloader):
@@ -82,7 +82,7 @@ def main():
     
     # load model
     bioclip, transforms = get_bioclip()
-    model = BioClip2_DeepRegressor(bioclip).cuda()
+    model = BioClip2_DeepFeatureRegressor(bioclip, n_last_trainable_resblocks=args.n_last_trainable_blocks).cuda()
     model.load_state_dict(torch.load(save_dir / "model.pth"))
     
     # Get datasets
