@@ -136,3 +136,41 @@ class BioClip2_DeepFeatureRegressorWithDomainID(nn.Module):
             domain_id_features = self.domain_id_feature_extractor(domain_ids)
 
         return self.regressor(features + domain_id_features)
+
+    def save_parameters(self, path):
+        feature_state_dicts = []
+        if self.n_last_trainable_resblocks > 0:
+            for block in self.bioclip.visual.transformer.resblocks[
+                -self.n_last_trainable_resblocks :
+            ]:
+                feature_state_dicts.append(block.state_dict())
+
+        torch.save(
+            {
+                "known_domain_ids": self.known_domain_ids,
+                "ln_post": self.bioclip.visual.ln_post.state_dict(),
+                "last_n_resblocks": feature_state_dicts,
+                "regressor": self.regressor.state_dict(),
+                "last_n_trainable_resblocks": self.n_last_trainable_resblocks,
+                "domain_id_feature_extractor": self.domain_id_feature_extractor.state_dict(),
+            },
+            path,
+        )
+
+    def load_parameters(self, path):
+        weights = torch.load(path)
+        self.n_last_trainable_resblocks = weights["last_n_trainable_resblocks"]
+        self.bioclip.visual.ln_post.load_state_dict(weights["ln_post"])
+        if self.n_last_trainable_resblocks > 0:
+            for block, state_dict in zip(
+                self.bioclip.visual.transformer.resblocks[
+                    -self.n_last_trainable_resblocks :
+                ],
+                weights["last_n_resblocks"],
+            ):
+                block.load_state_dict(state_dict)
+        self.regressor.load_state_dict(weights["regressor"])
+        self.known_domain_ids = weights["known_domain_ids"]
+        self.domain_id_feature_extractor.load_state_dict(
+            weights["domain_id_feature_extractor"]
+        )

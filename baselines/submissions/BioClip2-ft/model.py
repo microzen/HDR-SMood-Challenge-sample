@@ -1,14 +1,16 @@
-'''
+"""
 Sample predictive model.
 The ingestion program will call `predict` to get a prediction for each test image and then save the predictions for scoring. The following two methods are required:
 - predict: uses the model to perform predictions.
 - load: reloads the model.
-'''
+"""
+
 import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from open_clip import create_model_and_transforms
+
 
 def get_bioclip():
     """function that returns frozen bioclip model
@@ -21,7 +23,6 @@ def get_bioclip():
     )
     bioclip = bioclip.cuda()
     return bioclip, preprocess
-
 
 
 class BioClip2_DeepFeatureRegressor(nn.Module):
@@ -132,6 +133,39 @@ class BioClip2_DeepFeatureRegressor(nn.Module):
         features = F.normalize(features, dim=-1)
         return self.regressor(features)
 
+    def save_parameters(self, path):
+        feature_state_dicts = []
+        if self.n_last_trainable_resblocks > 0:
+            for block in self.bioclip.visual.transformer.resblocks[
+                -self.n_last_trainable_resblocks :
+            ]:
+                feature_state_dicts.append(block.state_dict())
+
+        torch.save(
+            {
+                "ln_post": self.bioclip.visual.ln_post.state_dict(),
+                "last_n_resblocks": feature_state_dicts,
+                "regressor": self.regressor.state_dict(),
+                "last_n_trainable_resblocks": self.n_last_trainable_resblocks,
+            },
+            path,
+        )
+
+    def load_parameters(self, path):
+        weights = torch.load(path)
+        self.n_last_trainable_resblocks = weights["last_n_trainable_resblocks"]
+        self.bioclip.visual.ln_post.load_state_dict(weights["ln_post"])
+        if self.n_last_trainable_resblocks > 0:
+            for block, state_dict in zip(
+                self.bioclip.visual.transformer.resblocks[
+                    -self.n_last_trainable_resblocks :
+                ],
+                weights["last_n_resblocks"],
+            ):
+                block.load_state_dict(state_dict)
+        self.regressor.load_state_dict(weights["regressor"])
+
+
 class Model:
     def __init__(self):
         # model will be called from the load() method
@@ -142,37 +176,28 @@ class Model:
         bioclip, transforms = get_bioclip()
         self.transforms = transforms
         model_path = os.path.join(os.path.dirname(__file__), "model.pth")
-        self.model = BioClip2_DeepFeatureRegressor(bioclip=bioclip, n_last_trainable_resblocks=2).cuda()
-        self.model.load_state_dict(torch.load(model_path))
-            
+        self.model = BioClip2_DeepFeatureRegressor(
+            bioclip=bioclip, n_last_trainable_resblocks=2
+        ).cuda()
+        self.model.load_parameters(model_path)
+        self.model.eval()
 
     def predict(self, datapoints):
-        images = [entry['relative_img'] for entry in datapoints]
+        images = [entry["relative_img"] for entry in datapoints]
         tensor_images = torch.stack([self.transforms(image) for image in images])
-        #model outputs 30d,1y,2y
+        # model outputs 30d,1y,2y
         outputs = []
         dset = torch.utils.data.TensorDataset(tensor_images)
         loader = torch.utils.data.DataLoader(dset, batch_size=4, shuffle=False)
-        for batch in loader:
-            x = batch[0]
-            outputs.append(self.model(x.cuda()).detach().cpu())
+        with torch.no_grad():
+            for batch in loader:
+                x = batch[0]
+                outputs.append(self.model(x.cuda()).detach().cpu())
         outputs = torch.cat(outputs)
         mu = torch.mean(outputs, dim=0)
-        sigma = torch.std(outputs,dim=0)
+        sigma = torch.std(outputs, dim=0)
         return {
-        'SPEI_30d': {
-            'mu': mu[0].item(),
-            'sigma': sigma[0].item()
-        },
-        'SPEI_1y': {
-            'mu': mu[1].item(),
-            'sigma': sigma[1].item()
-        },
-        'SPEI_2y': {
-            'mu': mu[2].item(),
-            'sigma': sigma[2].item()
+            "SPEI_30d": {"mu": mu[0].item(), "sigma": sigma[0].item()},
+            "SPEI_1y": {"mu": mu[1].item(), "sigma": sigma[1].item()},
+            "SPEI_2y": {"mu": mu[2].item(), "sigma": sigma[2].item()},
         }
-}   
-    
-        
-        

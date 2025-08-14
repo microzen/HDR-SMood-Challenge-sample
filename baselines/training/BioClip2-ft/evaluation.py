@@ -55,6 +55,7 @@ def evaluate(model, dataloader):
 
     return [x.item() for x in MAE], [spei_30_r2, spei_1y_r2, spei_2y_r2]
 
+
 def test_and_save(
     test_dataset,
     save_path,
@@ -62,7 +63,6 @@ def test_and_save(
     num_workers,
     model,
 ):
-
     dataloader = DataLoader(
         dataset=test_dataset,
         batch_size=batch_size,
@@ -79,24 +79,28 @@ def test_and_save(
 def main():
     args = get_training_args()
     save_dir = Path(__file__).resolve().parent
-    
+
     # load model
     bioclip, transforms = get_bioclip()
-    model = BioClip2_DeepFeatureRegressor(bioclip, n_last_trainable_resblocks=args.n_last_trainable_blocks).cuda()
-    model.load_state_dict(torch.load(save_dir / "model.pth"))
-    
+    model = BioClip2_DeepFeatureRegressor(
+        bioclip, n_last_trainable_resblocks=args.n_last_trainable_blocks
+    ).cuda()
+    model.load_parameters(save_dir / "model.pth")
+
     # Get datasets
     ds = load_dataset(
         "imageomics/sentinel-beetles",
         token=args.hf_token,
         split="validation",
     )
-    
+
     # Transform images for model input
     def dset_transforms(examples):
-        examples["pixel_values"] = [transforms(img.convert("RGB")) for img in examples["file_path"]]
+        examples["pixel_values"] = [
+            transforms(img.convert("RGB")) for img in examples["file_path"]
+        ]
         return examples
-    
+
     test_dset = ds.with_transform(dset_transforms)
 
     # evaluate model

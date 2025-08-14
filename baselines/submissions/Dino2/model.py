@@ -1,13 +1,15 @@
-'''
+"""
 Sample predictive model.
 The ingestion program will call `predict` to get a prediction for each test image and then save the predictions for scoring. The following two methods are required:
 - predict: uses the model to perform predictions.
 - load: reloads the model.
-'''
+"""
+
 import torch
 import os
 from transformers import AutoModel, AutoImageProcessor
 import torch.nn as nn
+
 
 def get_DINO():
     """function that returns frozen DINO model
@@ -18,6 +20,7 @@ def get_DINO():
     model = model.cuda()
     processor = AutoImageProcessor.from_pretrained("facebook/dinov2-base")
     return model, processor
+
 
 class DINO_DeepRegressor(nn.Module):
     def __init__(
@@ -63,6 +66,7 @@ class DINO_DeepRegressor(nn.Module):
 
         return self.regressor(self.tokens_to_linear(unflat).squeeze())
 
+
 class Model:
     def __init__(self):
         # model will be called from the load() method
@@ -74,39 +78,33 @@ class Model:
         self.processor = processor
         model_path = os.path.join(os.path.dirname(__file__), "model.pth")
         self.model = DINO_DeepRegressor(dino=dino).cuda()
-        self.model.load_state_dict(torch.load(model_path))
-            
+        self.model.eval()
+        self.model.regressor.load_state_dict(torch.load(model_path))
 
     def predict(self, datapoints):
-        images = [entry['relative_img'] for entry in datapoints]
-        tensor_images = torch.stack([self.processor(image, return_tensors="pt")['pixel_values'][0] for image in images])
-        #model outputs 30d,1y,2y
+        images = [entry["relative_img"] for entry in datapoints]
+        tensor_images = torch.stack(
+            [
+                self.processor(image, return_tensors="pt")["pixel_values"][0]
+                for image in images
+            ]
+        )
+        # model outputs 30d,1y,2y
         outputs = []
         dset = torch.utils.data.TensorDataset(tensor_images)
         loader = torch.utils.data.DataLoader(dset, batch_size=4, shuffle=False)
-        for batch in loader:
-            x = batch[0]
-            out = self.model(x.cuda()).detach().cpu()
-            if len(out.shape) == 1:
-                out = out.unsqueeze(0)
-            outputs.append(out)
+        with torch.no_grad():
+            for batch in loader:
+                x = batch[0]
+                out = self.model(x.cuda()).detach().cpu()
+                if len(out.shape) == 1:
+                    out = out.unsqueeze(0)
+                outputs.append(out)
         outputs = torch.cat(outputs)
         mu = torch.mean(outputs, dim=0)
-        sigma = torch.std(outputs,dim=0)
+        sigma = torch.std(outputs, dim=0)
         return {
-        'SPEI_30d': {
-            'mu': mu[0].item(),
-            'sigma': sigma[0].item()
-        },
-        'SPEI_1y': {
-            'mu': mu[1].item(),
-            'sigma': sigma[1].item()
-        },
-        'SPEI_2y': {
-            'mu': mu[2].item(),
-            'sigma': sigma[2].item()
+            "SPEI_30d": {"mu": mu[0].item(), "sigma": sigma[0].item()},
+            "SPEI_1y": {"mu": mu[1].item(), "sigma": sigma[1].item()},
+            "SPEI_2y": {"mu": mu[2].item(), "sigma": sigma[2].item()},
         }
-}   
-    
-        
-        
